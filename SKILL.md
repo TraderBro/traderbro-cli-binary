@@ -1,7 +1,7 @@
 ---
 name: traderbro
 description: "Query analyst predictions, content, and market research from the TraderBro platform."
-homepage: https://github.com/traderbro/traderbro-cli
+homepage: https://github.com/TraderBro/traderbro-cli-binary
 metadata: {"clawdbot":{"emoji":"📊","requires":{"bins":["traderbro"],"env":["TRADERBRO_API_KEY"]},"install":[{"id":"brew","kind":"brew","formula":"traderbro/tap/traderbro","bins":["traderbro"],"label":"Install traderbro (brew)"}]}}
 ---
 
