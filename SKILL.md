@@ -11,7 +11,7 @@ Query analyst predictions, content, and market research.
 
 ## Setup
 
-1. Log in at https://app.traderbro.ai
+1. Log in at https://traderbro.ai
 2. Go to Settings → API Keys → Generate New Key
 3. Run: traderbro configure --server https://traderbro.ai --key tb_sk_...
 
