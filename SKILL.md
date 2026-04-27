@@ -52,7 +52,7 @@ traderbro whoami --json
 ## Analysts
 
 ```
-traderbro analyst list --sort accuracy --limit 10 --json
+traderbro analyst list --sort return --limit 10 --json
 traderbro analyst get cathie-wood --json
 traderbro analyst predictions cathie-wood --json
 ```
@@ -108,8 +108,8 @@ traderbro research get my-article-slug --json
 
 ### Threshold filters on list
 ```bash
-# Analysts with ≥15 predictions and ≥60% accuracy
-traderbro analyst list --min-predictions 15 --min-accuracy 60
+# Analysts with ≥15 predictions, sorted by return
+traderbro analyst list --min-predictions 15 --sort return
 
 # Positive lifetime return, ≥10 predictions
 traderbro analyst list --min-predictions 10 --min-return 0.01
