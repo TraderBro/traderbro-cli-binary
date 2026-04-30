@@ -67,11 +67,16 @@ traderbro prediction get 42 --json
 
 ## Symbols
 
-```
-traderbro symbol list --has-predictions --json
+```bash
+# If you have a ticker but need the exchange, search first:
 traderbro symbol search "Tesla" --json
-traderbro symbol mentions 42 --json
-traderbro symbol predictions 42 --json
+traderbro symbol search AAPL --json
+# Returns EXCHANGE:SYMBOL values e.g. NASDAQ:TSLA — use that in mentions/predictions
+
+# Mentions and predictions — use EXCHANGE:SYMBOL format
+traderbro symbol mentions NASDAQ:TSLA --json
+traderbro symbol predictions NASDAQ:TSLA --json
+traderbro symbol predictions DSE:ABBANK --json
 ```
 
 ## Trending Symbols
@@ -101,7 +106,8 @@ traderbro content get 123 --json
 
 ```
 traderbro research list --category stock --country us --json
-traderbro research get my-article-slug --json
+traderbro research get <slug> --json
+# Get a real slug from: traderbro research list --json
 ```
 
 ## Analyst Analytics (Plans 63–65)
@@ -139,13 +145,13 @@ traderbro analyst list --sector Financials --json | jq '.results[] | {slug, avg_
 ### Sector edge (per-analyst breakdown)
 ```bash
 # Which sectors does an analyst excel in? (3-month returns)
-traderbro analyst sector-edge noLimitGains --period 3m
+traderbro analyst sector-edge crux_capital --period 3m
 
 # Industry breakdown, JSON for agent use
 traderbro analyst sector-edge aleabitoreddit --group-by industry --json
 
 # Only segments with 5+ calls
-traderbro analyst sector-edge crux_capital_ --min-calls 5
+traderbro analyst sector-edge crux_capital --min-calls 5
 ```
 
 ### Global sector map (cross-analyst)
@@ -156,11 +162,11 @@ traderbro analyst sector-map
 # Industry level, 3-month returns
 traderbro analyst sector-map --level industry --period 3m
 
-# Predictions made in Q1 2025 only
-traderbro analyst sector-map --date-from 2025-01-01 --date-to 2025-03-31
+# Predictions made in Q1 2026 only
+traderbro analyst sector-map --date-from 2026-01-01 --date-to 2026-03-31
 
 # JSON for agent — top 5 sectors by return last month
-traderbro analyst sector-map --date-from 2025-03-01 --date-to 2025-03-31 --period 1m --json | jq '.rows | sort_by(-.avg_return) | .[0:5]'
+traderbro analyst sector-map --date-from 2026-01-01 --date-to 2026-03-31 --period 1m --json | jq '.rows | sort_by(-.avg_return) | .[0:5]'
 ```
 
 ### Sector discovery
