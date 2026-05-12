@@ -1,7 +1,7 @@
 # TraderBro CLI — Pre-built Binaries
 
 > **Auto-updated on every push to main.**
-> Last build: commit `b07c0fa` at `2026-05-08T09:51:35Z`
+> Last build: commit `4266023` at `2026-05-12T06:10:16Z`
 
 This repository hosts pre-built binaries of the [TraderBro CLI](https://github.com/TraderBro/traderbro-cli).
 Versioned releases (tagged `v*`) are also published here by GoReleaser.
