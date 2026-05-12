@@ -314,6 +314,27 @@ traderbro patterns candles DSE:ACI --lookback 14 --json
 Returns which TA-Lib patterns fired in the last N bars with direction and recency.
 Patterns with `bars_ago` of 0 or 1 carry the most weight.
 
+## Chart Control (traderbro tv)
+
+Requires: `traderbro tv serve` running, TraderBro chart page open in browser.
+
+**Standard workflow:**
+1. `traderbro tv symbol NASDAQ:NVDA 1D`          — set chart
+2. `traderbro tv range 2025-01-01`               — set visible range
+3. `traderbro tv close && traderbro tv screenshot -o /tmp/chart.png`  — see what's on the chart
+4. `traderbro tv bars --last 90 --json`          — get exact timestamps for drawing
+5. `traderbro tv draw *`                         — annotate
+6. `traderbro tv close && traderbro tv screenshot -o /tmp/annotated.png`  — verify
+7. `traderbro tv save "name"`                    — persist
+
+**Key facts:**
+- Always run `tv close` before a screenshot to dismiss indicator panels
+- Always run `tv bars` before drawing to get authoritative timestamps — computed
+  timestamps can land one bar off around weekends and DST transitions
+- `tv draw` commands leave the chart interactive (exitDrawMode fix applied)
+- `tv state --json` tells you what symbol/resolution is currently displayed
+- `tv eval` is an escape hatch only — if you use it twice for the same thing, it belongs in chart-bridge.js
+
 ## Notes
 
 - Always use --json for agent/script use.
