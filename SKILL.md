@@ -232,6 +232,60 @@ traderbro analyst list --json | jq '.results[0].profile_url'
 traderbro prediction list --json | jq '.results[0].profile_url'
 ```
 
+## Liquidity gate — always filter the universe before scanning
+
+The calculated-events store covers every active US symbol, including illiquid nano-caps and penny stocks. The same detectors that flag a `golden_cross` on Apple will also flag one on a $0.10 ticker that ran 20× on a single news event. Mathematically the cross is real; economically the signal is noise.
+
+**Always upstream-filter with the screener** before piping into `calculated-events scan`. The standard liquidity gate for tradeable mega-cap signals:
+
+```bash
+traderbro screener run \
+    --filter "exchange:eq:NASDAQ" \
+    --filter "market_cap:gt:5B" \
+    --filter "dollar_volume:gt:200M" \
+    --symbols-only \
+  | traderbro calculated-events scan --type bull_flag --within-days 7
+```
+
+Tighter gate (most liquid only): `market_cap:gt:50B` + `dollar_volume:gt:500M`.
+Looser gate (include mid-caps): `market_cap:gt:2B` + `dollar_volume:gt:50M`.
+
+**Calling `scan` without an upstream symbol filter scans the entire universe — penny stocks included.** This is rarely what an agent wants. If you genuinely want the full universe (e.g. computing aggregate counts for a market-internals dashboard), be explicit about it in your reasoning.
+
+Concrete example of what happens without a gate: a top-of-the-day scan once surfaced NASDAQ:AIXI as a triple-confluence long (`golden_cross + yearly_high_break + inverse_h&s`). AIXI had opened at $12.59 the prior day from a prior close of $0.61 — a 20× moonshot. The detector was correct but the signal was untradeable. The liquidity gate above would have excluded it.
+
+## Pattern effectiveness — "does this pattern work on this symbol?"
+
+`calculated-events scan` answers *"which symbols just fired pattern X?"* but says nothing about whether the pattern *works* on those symbols. For that, use:
+
+```bash
+traderbro calculated-events patterns EXCHANGE:SYMBOL [flags]
+```
+
+It returns one row per event type with: full-history count, last occurrence, direction, and the **average forward return at 7 horizons** (1D/3D/7D/1M/3M/6M/1Y) along with sample size. Bearish returns are sign-flipped server-side — for both directions, a higher positive number means "the pattern played out as expected."
+
+Use this for any quantified-effectiveness question:
+
+```bash
+# Does Bull Flag work on TSLA?
+traderbro calculated-events patterns NASDAQ:TSLA --event-type bull_flag --json
+
+# Top 10 best-performing patterns on AAPL at 3M horizon
+traderbro calculated-events patterns NASDAQ:AAPL --top 10 --json
+
+# Currently-relevant high-accuracy setups (above-direction-avg + recent + n>=3)
+traderbro calculated-events patterns NASDAQ:NVDA --hot-only --horizon 1m --json
+
+# Bullish-tagged patterns that actually drop the stock (contrarian setups)
+traderbro calculated-events patterns NASDAQ:META --direction bullish --sort-by avg_return --asc --top 5
+```
+
+**Always quote `sample_size` when citing an average.** An n=1 "+85% avg" is honest but not statistically meaningful. The `--hot-only` filter requires n ≥ 3 by definition; for other uses, mention `n` to the user.
+
+Neutral event types (`bb_squeeze`, `volume_spike`) return `returns: null` — no forward-return data by design. Don't quote returns for them.
+
+See the `pattern-effectiveness` skill for full workflow guidance, including the sign convention with a worked example.
+
 ## Chart & Technical Analysis
 
 ### Full analysis (chart + patterns + signals)
