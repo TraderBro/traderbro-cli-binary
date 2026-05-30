@@ -7,6 +7,8 @@ metadata: {"clawdbot":{"emoji":"📊","requires":{"bins":["traderbro"],"env":["T
 
 # TraderBro CLI
 
+<!-- Source of truth: TraderBro/traderbro-cli:SKILL.md — auto-synced to traderbro-cli-binary on push to main. Edit it there, not in the binary repo. -->
+
 Query analyst predictions, content, and market research.
 
 ## Setup
@@ -81,6 +83,10 @@ traderbro analyst list --sort return --limit 10 --json
 traderbro analyst get cathie-wood --json
 traderbro analyst predictions cathie-wood --json
 ```
+
+> **Ranking analysts — there is NO "accuracy" metric.** If a user asks for the "most accurate", "best", or "highest hit-rate" analysts, rank by **return** — that is the number TraderBro uses to measure analyst quality (how much their calls actually made). Valid `--sort` values are `return`, `predictions`, `name`; anything else (e.g. `accuracy`) errors, so don't guess flags.
+>
+> To rank the analysts **on a specific symbol**, make ONE call: `traderbro symbol predictions <EXCHANGE:SYMBOL> --json` — it returns each analyst's calls and returns on that symbol, already aggregated. **Never page through the global `prediction list` to compute per-analyst or per-symbol stats yourself** — the analyst- and symbol-scoped endpoints already do that aggregation. Pulling the whole prediction table page by page is slow, wasteful, and unnecessary; if a metric isn't directly available, fall back to `return`, don't brute-force it.
 
 ## Predictions
 
@@ -286,88 +292,6 @@ Neutral event types (`bb_squeeze`, `volume_spike`) return `returns: null` — no
 
 See the `pattern-effectiveness` skill for full workflow guidance, including the sign convention with a worked example.
 
-## Chart & Technical Analysis
-
-### Full analysis (chart + patterns + signals)
-
-```bash
-traderbro analyze EXCHANGE:SYMBOL [flags]
-```
-
-Generates a candlestick chart with indicator overlays, scans for candlestick patterns,
-detects structural chart patterns, and returns a combined signals summary.
-
-```bash
-# Quick analysis — default indicators (sma_50, sma_200, rsi), 6-month daily chart
-traderbro analyze DSE:ACI
-
-# 1-year chart with MACD added
-traderbro analyze NASDAQ:AAPL --period 1y --indicators sma_50,sma_200,rsi,macd
-
-# Bollinger Bands instead of moving averages
-traderbro analyze DSE:ACI --indicators bbands,rsi
-
-# Faster — skip structural pattern detection
-traderbro analyze DSE:ACI --no-chart-patterns
-
-# Raw JSON — use when you need to parse or pipe the output
-traderbro analyze DSE:ACI --json
-```
-
-**Reading the chart image:**
-The command saves the PNG to a local file and prints the absolute path to stdout.
-Read that file using your image tool to see the chart visually.
-
-```
-# stdout example:
-/home/user/.traderbro/charts/ACI_DSE_1d_6mo_analyze_20260508-120000.png
-
-# Read it:
-<use your Read/image tool on that exact path>
-```
-
-**Flags:**
-
-| Flag | Default | Options |
-|---|---|---|
-| `--period` | `6mo` | `1mo`, `3mo`, `6mo`, `1y`, `2y` |
-| `--interval` | `1d` | `1d`, `1wk` |
-| `--indicators` | `sma_50,sma_200,rsi` | `sma_20`, `sma_50`, `sma_200`, `ema_20`, `ema_50`, `bbands`, `rsi`, `macd` |
-| `--lookback` | `10` | Any positive integer — candle pattern scan window (bars) |
-| `--no-chart-patterns` | off | Skip structural pattern detection (faster) |
-| `--no-candle-patterns` | off | Skip TA-Lib candlestick scan |
-| `--json` | off | Print raw JSON to stdout instead of saving PNG |
-
-**Key fields in `--json` output:**
-
-| Field | What it tells you |
-|---|---|
-| `candle_patterns[*].bars_ago` | 0 = today, 1 = yesterday. Patterns ≤ 2 bars ago are most actionable |
-| `chart_patterns[*].status` | `"active"` = pattern still in play; `"historical"` = already resolved |
-| `chart_patterns[*].target_price` | Pattern's measured price target |
-| `chart_patterns[*].stop_price` | Suggested invalidation level |
-| `signals.confluence_score` | 0–10. ≥7 = high conviction. ≤3 = mixed or no signal |
-| `signals.dominant_direction` | Overall bias: `"bullish"`, `"bearish"`, or `"neutral"` |
-| `signals.summary` | Plain-English summary — read this first before the raw arrays |
-
-### Candlestick pattern scan only
-
-```bash
-traderbro patterns candles EXCHANGE:SYMBOL [flags]
-
-# Last 10 bars (default)
-traderbro patterns candles DSE:ACI
-
-# Extend the scan window
-traderbro patterns candles NASDAQ:TSLA --lookback 20
-
-# JSON for parsing
-traderbro patterns candles DSE:ACI --lookback 14 --json
-```
-
-Returns which TA-Lib patterns fired in the last N bars with direction and recency.
-Patterns with `bars_ago` of 0 or 1 carry the most weight.
-
 ## Screener
 
 ```bash
@@ -400,62 +324,81 @@ traderbro screener run --filter exchange:eq:NASDAQ --sort dollar_volume:desc \
 # universe.txt: 100 lines, no footer — footer goes to stderr
 ```
 
-## Chart Control (traderbro tv)
+## Two charts — which to use
 
-Requires: `traderbro tv serve` running, TraderBro chart page open in browser.
+| Need | Command | Why |
+|---|---|---|
+| Proprietary overlays (analyst marks, calculated events, predictions) | **`brochart`** | only the traderbro.ai-hosted chart carries TraderBro's custom data |
+| High-fidelity price/volume: intraday, extended-hours, long history, bulk scanning, native drawing | **`tvsandbox`** | drives the official tradingview.com/chart over CDP on a dedicated Chrome |
+| Chart-**pattern detection** (H&S, etc.) | **`calculated-events`** | server-side detector; there is no geometry detector in the CLI |
+
+## Chart Control — official tradingview.com (traderbro tvsandbox)
+
+Drives `tradingview.com/chart` over CDP on a dedicated, app-owned Chrome (port 9333,
+profile `~/.traderbro/chrome-profile`). **Run `traderbro skills show tvsandbox-setup`
+first** — the login gate (`whoami`/`login`), port isolation, and the single-Chrome
+**sequential-only** rule are mandatory operating knowledge.
+
+- **Read/judge a symbol:** `tvsandbox bars` + `tvsandbox snap` → Read the PNG → call it (skill `tvsandbox-reading`). No detector — judgement is the agent's.
+- **Read many charts:** get a candidate list from `screener`/`calculated-events`, then rank it with `tvsandbox metrics` and/or bulk-capture with `tvsandbox sweep` (skill `tvsandbox-scanning`). tvsandbox does not screen the market itself.
+- **Annotate:** `tvsandbox draw <shape> --points …` renders any of ~90 native TV objects; `tvsandbox clear` removes them (skill `tvsandbox-drawing`).
+
+## Chart Control (traderbro brochart)
+
+Requires: `traderbro brochart serve` running, TraderBro chart page open in browser.
 
 **Standard single-chart workflow:**
-1. `traderbro tv symbol NASDAQ:NVDA 1D`          — set chart
-2. `traderbro tv range 2025-01-01`               — set visible range
-3. `traderbro tv close && traderbro tv screenshot -o /tmp/chart.png`  — see what's on the chart
-4. `traderbro tv bars --last 90 --json`          — get exact timestamps for drawing
-5. `traderbro tv draw *`                         — annotate
-6. `traderbro tv close && traderbro tv screenshot -o /tmp/annotated.png`  — verify
-7. `traderbro tv save "name"`                    — persist
+1. `traderbro brochart symbol NASDAQ:NVDA 1D`          — set chart
+2. `traderbro brochart range 2025-01-01`               — set visible range
+3. `traderbro brochart close && traderbro brochart screenshot -o /tmp/chart.png`  — see what's on the chart
+4. `traderbro brochart bars --last 90 --json`          — get exact timestamps for drawing
+5. `traderbro brochart draw *`                         — annotate
+6. `traderbro brochart close && traderbro brochart screenshot -o /tmp/annotated.png`  — verify
+7. `traderbro brochart save "name"`                    — persist
 
 ### Command surface (read commands)
 
 | Command | Purpose | Readback |
 |---|---|---|
-| `tv health` | 5-check diagnostic (bridge, chart, widget, UDF, memory) | exit 0/1 |
-| `tv charts` / `tv use <id>` / `tv connect <uuid>` | List, select, or attach to a chart tab | JSON |
-| `tv state [--json] [--full]` | Symbol, resolution, bar_spacing, studies, shapes, theme | JSON (long-key shape) |
-| `tv bars --last N [--json]` | Authoritative OHLCV: `{date, timestamp, open, high, low, close, volume}` | always |
-| `tv study list [--json] [--plain]` | All active studies (id, name, parent_id) | human table default |
-| `tv study values --last N [--include-volume] [--ids X,Y]` | Bars + every active study's computed series, time-aligned | always |
-| `tv draw list [--json] [--plain]` | All shapes (id, name=type, parent_id for labels) | human table default |
-| `tv saved [--json]` | Saved chart layouts | human table default |
-| `tv search <q> [--exchange] [--type] [--limit]` | UDF symbol search; falls back to `/cli/v1/symbols/search/` when no chart connected | always |
-| `tv screenshot [-o file]` | PNG. Base64 to stdout if no `-o`. | binary |
+| `brochart health` | 5-check diagnostic (bridge, chart, widget, UDF, memory) | exit 0/1 |
+| `brochart charts` / `brochart use <id>` / `brochart connect <uuid>` | List, select, or attach to a chart tab | JSON |
+| `brochart state [--json] [--full]` | Symbol, resolution, bar_spacing, studies, shapes, theme | JSON (long-key shape) |
+| `brochart bars --last N [--json]` | Authoritative OHLCV: `{date, timestamp, open, high, low, close, volume}` | always |
+| `brochart study list [--json] [--plain]` | All active studies (id, name, parent_id) | human table default |
+| `brochart study values --last N [--include-volume] [--ids X,Y]` | Bars + every active study's computed series, time-aligned | always |
+| `brochart draw list [--json] [--plain]` | All shapes (id, name=type, parent_id for labels) | human table default |
+| `brochart saved [--json]` | Saved chart layouts | human table default |
+| `brochart search <q> [--exchange] [--type] [--limit]` | UDF symbol search; falls back to `/cli/v1/symbols/search/` when no chart connected | always |
+| `brochart screenshot [-o file]` | PNG. Base64 to stdout if no `-o`. | binary |
 
 ### Command surface (write commands — all return `{ok, command, ...fields}` under `--json`)
 
 | Command | Effect | Notes |
 |---|---|---|
-| `tv symbol <ticker> [res]` | Set symbol + optional resolution | Always exchange-qualify (`NASDAQ:AAPL`) to avoid bare-ticker warnings + cross-exchange resolution surprises. Emits stderr warning when symbol has no UDF data (chart loads empty); exit 0 — next `tv symbol` recovers. |
-| `tv timeframe <val> [res]` | Set visible window: `1D 5D 1M 3M 6M YTD 1Y 3Y 5Y ALL`; optional res `1D/1W/1M` | Computes (from, to) Unix timestamps in Go and calls `setVisibleRange` — TV's documented `setTimeFrame` shape doesn't work in this Charting Library variant. |
-| `tv zoom <in\|out\|reset\|N>` | Bar spacing. Use `-- -5` to pass a negative value (cobra). | Verified via `tv state \| jq .bar_spacing` |
-| `tv range <start> [end]` | Explicit YYYY-MM-DD window | No readback — visual diff only |
-| `tv close` | Dismiss popups/panels | Run before screenshot |
-| `tv study add <name> [--force]` | Add indicator. Use full names ("Relative Strength Index", not "RSI"). | Dedup by name unless `--force`. |
-| `tv study remove <id>` / `tv study clear` | Remove one or all studies | |
-| `tv draw line/hline/rect/arrow/text/long/short` | Draw shapes. `--label` adds a linked text shape (parent_id). | `--json` returns `shape_id` for the new shape |
-| `tv draw modify <id> [--color] [--width] [--style] [--label]` | Edit existing shape's visual properties | Phase 1: color/width/style/label. Phase 2 (geometry) deferred. |
-| `tv draw remove <id>[,<id>] / --type X / --all` | Surgical shape removal with label cascade | `--all` is alias for `tv draw clear` |
-| `tv draw clear` | Wipe all shapes | |
-| `tv save [name]` / `tv refresh [--hard]` | Save layout / soft re-bind (default) / hard reload page | `--hard` does origin pre-probe and refuses if front-end down |
-| `tv eval "<js>"` | Escape hatch for un-wrapped TV API calls | Use sparingly |
+| `brochart symbol <ticker> [res]` | Set symbol + optional resolution | Always exchange-qualify (`NASDAQ:AAPL`) to avoid bare-ticker warnings + cross-exchange resolution surprises. Emits stderr warning when symbol has no UDF data (chart loads empty); exit 0 — next `brochart symbol` recovers. |
+| `brochart timeframe <val> [res]` | Set visible window: `1D 5D 1M 3M 6M YTD 1Y 3Y 5Y ALL`; optional res `1D/1W/1M` | Computes (from, to) Unix timestamps in Go and calls `setVisibleRange` — TV's documented `setTimeFrame` shape doesn't work in this Charting Library variant. |
+| `brochart zoom <in\|out\|reset\|N>` | Bar spacing. Use `-- -5` to pass a negative value (cobra). | Verified via `brochart state \| jq .bar_spacing` |
+| `brochart range <start> [end]` | Explicit YYYY-MM-DD window | No readback — visual diff only |
+| `brochart close` | Dismiss popups/panels | Run before screenshot |
+| `brochart study add <name> [--force]` | Add indicator. Use full names ("Relative Strength Index", not "RSI"). | Dedup by name unless `--force`. |
+| `brochart study remove <id>` / `brochart study clear` | Remove one or all studies | |
+| `brochart draw line/hline/rect/arrow/text/long/short` | Draw shapes. `--label` adds a linked text shape (parent_id). | `--json` returns `shape_id` for the new shape |
+| `brochart draw modify <id> [--color] [--width] [--style] [--label]` | Edit existing shape's visual properties | Phase 1: color/width/style/label. Phase 2 (geometry) deferred. |
+| `brochart draw remove <id>[,<id>] / --type X / --all` | Surgical shape removal with label cascade | `--all` is alias for `brochart draw clear` |
+| `brochart draw clear` | Wipe all shapes | |
+| `brochart save [name]` / `brochart refresh [--hard]` | Save layout / soft re-bind (default) / hard reload page | `--hard` does origin pre-probe and refuses if front-end down |
+| `brochart eval "<js>"` | Escape hatch for un-wrapped TV API calls | Use sparingly |
 
 ### Key facts
 
-- **Always run `tv close` before a screenshot** to dismiss indicator panels.
-- **Always run `tv bars` before drawing** for authoritative timestamps — computed dates can land one bar off around weekends/DST.
+- **Always run `brochart close` before a screenshot** to dismiss indicator panels.
+- **Always run `brochart bars` before drawing** for authoritative timestamps — computed dates can land one bar off around weekends/DST.
 - **Always exchange-qualify symbols** in scripts (`NASDAQ:AAPL`, not `AAPL`) — bare tickers print a stderr warning and may resolve to a wrong exchange after a saveload restore.
-- **`tv state --json`** has long keys: `.symbol` is a string (the ticker), `.symbol_info` carries the metadata, `.bar_spacing` reflects current zoom level.
-- **`tv bars --json`** keys: `open, high, low, close, volume, timestamp, date` (long form, same as `tv study values`).
-- **`tv eval`** is an escape hatch only — if you use it twice for the same thing, it belongs in `chart-bridge.js`.
-- **Soft refresh** (`tv refresh`) is ~200 ms and non-destructive — fine for K=25-50 cadence in long loops. **Hard refresh** (`tv refresh --hard`) is destructive and pre-probes the chart origin (refuses if unreachable); reserve for `tv health` failures.
-- **No-bars charts** show "No data here" — chart accepts next symbol normally, not a freeze. In production (traderbro.ai) the UDF covers every active US symbol so this usually means a wrong-exchange ticker (e.g. `BCBA:AAPL`); in local dev backends, even mega-caps may not be ingested yet. `tv symbol` and `tv draw` both emit stderr warnings + exit 0 on bars=0; suppress with `--quiet`.
+- **`brochart state --json`** has long keys: `.symbol` is a string (the ticker), `.symbol_info` carries the metadata, `.bar_spacing` reflects current zoom level.
+- **`brochart bars --json`** keys: `open, high, low, close, volume, timestamp, date` (long form, same as `brochart study values`).
+- **`brochart eval`** is an escape hatch only — if you use it twice for the same thing, it belongs in `chart-bridge.js`.
+- **Soft refresh** (`brochart refresh`) is ~200 ms and non-destructive — fine for K=25-50 cadence in long loops. **Hard refresh** (`brochart refresh --hard`) is destructive and pre-probes the chart origin (refuses if unreachable); reserve for `brochart health` failures.
+- **No-bars charts** show "No data here" — chart accepts next symbol normally, not a freeze. In production (traderbro.ai) the UDF covers every active US symbol so this usually means a wrong-exchange ticker (e.g. `BCBA:AAPL`); in local dev backends, even mega-caps may not be ingested yet. `brochart symbol` and `brochart draw` both emit stderr warnings + exit 0 on bars=0; suppress with `--quiet`.
 
 ### Bulk scanning (>20 symbols in one session)
 
@@ -468,11 +411,11 @@ traderbro screener run --filter exchange:eq:NASDAQ --sort dollar_volume:desc \
 
 K=0
 while read sym; do
-  traderbro tv symbol "$sym" 1D --quiet >/dev/null
+  traderbro brochart symbol "$sym" 1D --quiet >/dev/null
   sleep 1  # let bars load
-  traderbro tv bars --last 90 --json > "$RUN_DIR/bars/${sym//:/_}.json"
+  traderbro brochart bars --last 90 --json > "$RUN_DIR/bars/${sym//:/_}.json"
   K=$((K+1)); (( K % 25 == 0 )) && {
-    traderbro tv health --quick >/dev/null || traderbro tv refresh
+    traderbro brochart health --quick >/dev/null || traderbro brochart refresh
   }
 done < "$RUN_DIR/universe.txt"
 
@@ -485,12 +428,12 @@ done | sort -k2 -rn | head
 
 ### Visual regression for blind-write commands
 
-`tv timeframe`, `tv range`, `tv close`, `tv screenshot` have no state readback. Use the helpers at `experiments/tv_visual_helpers.sh`:
+`brochart timeframe`, `brochart range`, `brochart close`, `brochart screenshot` have no state readback. Use the helpers at `experiments/tv_visual_helpers.sh`:
 
 ```bash
 source experiments/tv_visual_helpers.sh
-verify_visual_change traderbro tv timeframe 6M
-verify_n_distinct_screenshots /tmp/sweep "traderbro tv timeframe" 1D 6M 1Y ALL
+verify_visual_change traderbro brochart timeframe 6M
+verify_n_distinct_screenshots /tmp/sweep "traderbro brochart timeframe" 1D 6M 1Y ALL
 ```
 
 These exist for testing only — don't run them inside production agent loops (each screenshot is ~100 KB / ~500 ms).
@@ -503,7 +446,7 @@ These exist for testing only — don't run them inside production agent loops (e
 |---|---|
 | `analyst-top-picks` | "what should I buy" / best analyst picks |
 | `calculated-events-tv` | end-to-end signal scan + visual annotation across symbols |
-| `chart-reading` | interpret a PNG produced by `traderbro analyze` or `traderbro chart` |
+| `chart-reading` | interpret a chart PNG (from `tvsandbox snap` or `brochart screenshot`) |
 | `pattern-confluence` | Buy/Sell/Hold verdict combining analysts + signals + chart |
 | `pattern-effectiveness` | "does this pattern actually work on this symbol" |
 | `sharing` | producing shareable URLs + preview images for social/messaging |
@@ -512,22 +455,26 @@ These exist for testing only — don't run them inside production agent loops (e
 | `tv-analysis` | single-chart annotation SOP |
 | `tv-bulk-scanning` | loop over many charts, dump artifacts, analyse offline |
 | `tv-drawings` | TV's built-in shape vocabulary via `createMultipointShape` |
-| `tv-long-running` | reliability primitives (`tv health`, `tv refresh`) for batch agents |
+| `tv-long-running` | reliability primitives (`brochart health`, `brochart refresh`) for batch agents |
 | `tv-patterns` | end-to-end chart-pattern analysis: detect + annotate |
 | `tv-quant` | pull exact numeric values (OHLCV + study series) |
+| `tvsandbox-setup` | **read first** for tvsandbox — login gate, port 9333, sequential-Chrome rule |
+| `tvsandbox-reading` | read/judge one symbol on official tradingview.com data (bars + screenshot) |
+| `tvsandbox-scanning` | rank/bulk-capture a symbol list (from screener/calculated-events) via `metrics`/`sweep` |
+| `tvsandbox-drawing` | annotate with native TV objects via `tvsandbox draw` |
 
 ## Known issues + recent fixes
 
 See `docs/16_TV_NewBugs_BUG25_BUG26.md` for the running bug log. Current state (2026-05-14):
 
-- **BUG-25 fixed** — Volume study's `symbol` input no longer pins to the symbol at creation time; `tv timeframe` with resolution change no longer corrupts study symbols.
-- **BUG-26 fixed** — `tv range` "Value is null" was a downstream symptom of BUG-25; gone.
-- **`tv timeframe` no-op fixed** — was silently doing nothing because of a wrong payload shape; now computes (from, to) in Go and uses `setVisibleRange`.
+- **BUG-25 fixed** — Volume study's `symbol` input no longer pins to the symbol at creation time; `brochart timeframe` with resolution change no longer corrupts study symbols.
+- **BUG-26 fixed** — `brochart range` "Value is null" was a downstream symptom of BUG-25; gone.
+- **`brochart timeframe` no-op fixed** — was silently doing nothing because of a wrong payload shape; now computes (from, to) in Go and uses `setVisibleRange`.
 - **BUG-27 retracted** — wasn't a real freeze; was no-UDF-data symbols mishandled. Now a soft stderr warning.
 
 Test artifacts:
 - `experiments/run_300_regression.sh` — 300-prompt regression with visual asserts on TF/zoom/range. Run after any `cmd/tv/*` change. Expect 298 PASS / 0 FAIL / 2 SKIP.
-- `experiments/run_rapid_fire_stress.sh` — 9-phase rapid-fire stress covering symbol/study/draw/zoom/TF/range churn + chaos. Use when changing the bridge or `tv symbol` plumbing.
+- `experiments/run_rapid_fire_stress.sh` — 9-phase rapid-fire stress covering symbol/study/draw/zoom/TF/range churn + chaos. Use when changing the bridge or `brochart symbol` plumbing.
 - `experiments/tv_visual_helpers.sh` — reusable visual-diff helpers.
 
 ## Notes
