@@ -307,8 +307,10 @@ traderbro screener run \
 traderbro screener run --filter "ch1m:lt:-20" --symbols-only \
   | traderbro calculated-events scan --type CDLHAMMER
 
-# Schema discovery — flat array of {key, type, category, label}
-traderbro screener schema --json | jq '[.[] | select(.category=="growth")] | .[].key'
+# Schema discovery — `schema` ALWAYS returns an OBJECT, never a top-level array.
+# Find field keys with --search <kw> (keys at .results[].key) or --group <category> (keys at .fields[].key):
+traderbro screener schema --group growth --json | jq -r '.fields[].key'
+traderbro screener schema --search rsi   --json | jq -r '.results[].key'
 
 # Categorical values for a field
 traderbro screener values sector --json
