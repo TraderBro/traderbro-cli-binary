@@ -81,12 +81,12 @@ When you surface an analyst, prediction, or symbol to a human:
 ```
 traderbro analyst list --sort return --limit 10 --json
 traderbro analyst get cathie-wood --json
-traderbro analyst predictions cathie-wood --json
+traderbro prediction --analyst cathie-wood --json
 ```
 
 > **Ranking analysts — there is NO "accuracy" metric.** If a user asks for the "most accurate", "best", or "highest hit-rate" analysts, rank by **return** — that is the number TraderBro uses to measure analyst quality (how much their calls actually made). Valid `--sort` values are `return`, `predictions`, `name`; anything else (e.g. `accuracy`) errors, so don't guess flags.
 >
-> To rank the analysts **on a specific symbol**, make ONE call: `traderbro symbol predictions <EXCHANGE:SYMBOL> --json` — it returns each analyst's calls and returns on that symbol, already aggregated. **Never page through the global `prediction list` to compute per-analyst or per-symbol stats yourself** — the analyst- and symbol-scoped endpoints already do that aggregation. Pulling the whole prediction table page by page is slow, wasteful, and unnecessary; if a metric isn't directly available, fall back to `return`, don't brute-force it.
+> To rank or inspect calls **on a specific symbol or analyst**, make ONE filtered call: `traderbro prediction --symbol <EXCHANGE:SYMBOL>` or `--analyst <slug>` (add `--period 1m --min-return 10`, `--direction`, `--open`, `--series-first` to narrow server-side). **Never page through an unfiltered `prediction` list to compute stats yourself** — push the filters to the server; if a metric isn't directly available, fall back to `--sort return`, don't brute-force it.
 
 ## Predictions
 
@@ -102,7 +102,7 @@ traderbro prediction get 42 --json
 # If you have a ticker but need the exchange, search first:
 traderbro symbol search "Tesla" --json
 traderbro symbol search AAPL --json
-# Returns EXCHANGE:SYMBOL values e.g. NASDAQ:TSLA — use that in insight/predictions
+# Returns EXCHANGE:SYMBOL values e.g. NASDAQ:TSLA — use that in insight/prediction --symbol
 
 # Insight = analyst commentary/insight/prediction mentions, with sentiment + tags.
 # Filters compose: --symbol / --analyst / --type / --tag / --sentiment (run `traderbro insight --describe`).
@@ -111,8 +111,10 @@ traderbro insight --symbol NASDAQ:TSLA --type evidence_insight --sentiment negat
 traderbro insight --analyst ray-wang --type catalyst_insight --json
 
 # Curated, return-tracked directional calls only:
-traderbro symbol predictions NASDAQ:TSLA --json
-traderbro symbol predictions DSE:ABBANK --json
+traderbro prediction --symbol NASDAQ:TSLA --json
+traderbro prediction --symbol DSE:ABBANK --json
+# return-filtered: calls up >10% one month out
+traderbro prediction --symbol NASDAQ:TSLA --period 1m --min-return 10 --json
 ```
 
 ## Trending Symbols
