@@ -102,10 +102,15 @@ traderbro prediction get 42 --json
 # If you have a ticker but need the exchange, search first:
 traderbro symbol search "Tesla" --json
 traderbro symbol search AAPL --json
-# Returns EXCHANGE:SYMBOL values e.g. NASDAQ:TSLA — use that in mentions/predictions
+# Returns EXCHANGE:SYMBOL values e.g. NASDAQ:TSLA — use that in insight/predictions
 
-# Mentions and predictions — use EXCHANGE:SYMBOL format
-traderbro symbol mentions NASDAQ:TSLA --json
+# Insight = analyst commentary/insight/prediction mentions, with sentiment + tags.
+# Filters compose: --symbol / --analyst / --type / --tag / --sentiment (run `traderbro insight --describe`).
+traderbro insight --symbol NASDAQ:TSLA --json
+traderbro insight --symbol NASDAQ:TSLA --type evidence_insight --sentiment negative --json
+traderbro insight --analyst ray-wang --type catalyst_insight --json
+
+# Curated, return-tracked directional calls only:
 traderbro symbol predictions NASDAQ:TSLA --json
 traderbro symbol predictions DSE:ABBANK --json
 ```
