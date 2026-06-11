@@ -348,6 +348,7 @@ profile `~/.traderbro/chrome-profile`). **Run `traderbro skills show tvsandbox-s
 first** — the login gate (`whoami`/`login`), port isolation, and the single-Chrome
 **sequential-only** rule are mandatory operating knowledge.
 
+- **Find the right symbol:** `tvsandbox search <ticker-or-name>` returns the exact symbols the guest feed serves. The guest exchange ≠ a stock's primary listing (e.g. **SPY is `AMEX:SPY`, not `NYSEARCA:SPY`**) — search instead of guessing; `bars`/`snap` also print candidates when a symbol won't load.
 - **Read/judge a symbol:** `tvsandbox bars` + `tvsandbox snap` → Read the PNG → call it (skill `tvsandbox-reading`). No detector — judgement is the agent's.
 - **Read many charts:** get a candidate list from `screener`/`calculated-events`, then rank it with `tvsandbox metrics` and/or bulk-capture with `tvsandbox sweep` (skill `tvsandbox-scanning`). tvsandbox does not screen the market itself.
 - **Annotate:** `tvsandbox draw <shape> --points …` renders any of ~90 native TV objects; `tvsandbox clear` removes them (skill `tvsandbox-drawing`).
