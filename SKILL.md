@@ -354,7 +354,7 @@ first** — the login gate (`whoami`/`login`), port isolation, and the single-Ch
 
 ## Chart Control (traderbro brochart)
 
-Requires: `traderbro brochart serve` running, TraderBro chart page open in browser.
+Requires either: (a) `traderbro brochart serve` running + a TraderBro chart page open in the user's browser (interactive), or (b) `traderbro brochart launch --via cdp [--headless]` for sandbox/agent use with no human tab (see "Headless / agent-driven" below). brochart is the **only** way to render TraderBro's proprietary overlays (analyst calls, calculated-event patterns) — tvsandbox cannot.
 
 **Standard single-chart workflow:**
 1. `traderbro brochart symbol NASDAQ:NVDA 1D`          — set chart
@@ -378,7 +378,9 @@ Requires: `traderbro brochart serve` running, TraderBro chart page open in brows
 | `brochart draw list [--json] [--plain]` | All shapes (id, name=type, parent_id for labels) | human table default |
 | `brochart saved [--json]` | Saved chart layouts | human table default |
 | `brochart search <q> [--exchange] [--type] [--limit]` | UDF symbol search; falls back to `/cli/v1/symbols/search/` when no chart connected | always |
-| `brochart screenshot [-o file]` | PNG. Base64 to stdout if no `-o`. | binary |
+| `brochart screenshot [-o file]` | PNG. Base64 to stdout if no `-o`. Over `--via cdp`/`--headless` with `-o`, captures watermark-free (no account stamp). | binary |
+| `brochart analysts list [--json]` | Analysts available + currently selected for the chart's symbol (proprietary overlay) | human table default |
+| `brochart patterns list [--json] [--direction]` | Calculated-event pattern types available + selected for the symbol | human table default |
 
 ### Command surface (write commands — all return `{ok, command, ...fields}` under `--json`)
 
@@ -396,6 +398,9 @@ Requires: `traderbro brochart serve` running, TraderBro chart page open in brows
 | `brochart draw remove <id>[,<id>] / --type X / --all` | Surgical shape removal with label cascade | `--all` is alias for `brochart draw clear` |
 | `brochart draw clear` | Wipe all shapes | |
 | `brochart save [name]` / `brochart refresh [--hard]` | Save layout / soft re-bind (default) / hard reload page | `--hard` does origin pre-probe and refuses if front-end down |
+| `brochart analysts select [slug...]` | Overlay these analysts' calls. Default REPLACES; `--add`/`--remove`/`--clear`; `--direction all\|bullish\|bearish`. Slugs from `analysts list`. | Proprietary overlay — has no tvsandbox equivalent |
+| `brochart patterns select [type...]` | Overlay these pattern types as markers. Default REPLACES; `--add`/`--remove`/`--clear`; `--direction`; `--horizon 1d\|3d\|7d\|1m\|3m\|6m\|1y` (forward-return window). Types from `patterns list`. | Proprietary overlay |
+| `brochart tab <symbols\|analysts\|patterns\|copilot\|hermes>` | Switch the active sidebar tab (opens the panel) | |
 | `brochart eval "<js>"` | Escape hatch for un-wrapped TV API calls | Use sparingly |
 
 ### Key facts
@@ -408,6 +413,50 @@ Requires: `traderbro brochart serve` running, TraderBro chart page open in brows
 - **`brochart eval`** is an escape hatch only — if you use it twice for the same thing, it belongs in `chart-bridge.js`.
 - **Soft refresh** (`brochart refresh`) is ~200 ms and non-destructive — fine for K=25-50 cadence in long loops. **Hard refresh** (`brochart refresh --hard`) is destructive and pre-probes the chart origin (refuses if unreachable); reserve for `brochart health` failures.
 - **No-bars charts** show "No data here" — chart accepts next symbol normally, not a freeze. In production (traderbro.ai) the UDF covers every active US symbol so this usually means a wrong-exchange ticker (e.g. `BCBA:AAPL`); in local dev backends, even mega-caps may not be ingested yet. `brochart symbol` and `brochart draw` both emit stderr warnings + exit 0 on bars=0; suppress with `--quiet`.
+
+### Proprietary overlays — Analysts & Patterns (brochart only)
+
+These are TraderBro's own data, rendered on the self-hosted chart — **tvsandbox cannot show them** (it only sees tradingview.com). Use brochart when the user asks to *see analyst calls or detected chart patterns on the chart*.
+
+```bash
+# Analyst calls overlay
+traderbro brochart symbol NASDAQ:NVDA 1D
+traderbro brochart analysts list --json                 # who covers NVDA + who's selected
+traderbro brochart analysts select alea merridew         # overlay two analysts' marks (REPLACE)
+traderbro brochart analysts select crux --add            # add a third
+traderbro brochart analysts select --direction bullish   # show only bullish marks
+traderbro brochart tab analysts                          # open the Analysts panel
+traderbro brochart close && traderbro brochart screenshot -o /tmp/nvda-analysts.png
+
+# Calculated-event pattern overlay
+traderbro brochart patterns list --json                  # pattern types detected on NVDA
+traderbro brochart patterns select bull_flag cup_and_handle --horizon 3m
+traderbro brochart close && traderbro brochart screenshot -o /tmp/nvda-patterns.png
+```
+
+- `select` with no args + `--clear` removes the overlay. `--add`/`--remove` adjust incrementally.
+- `analysts list` shows **who covers the symbol** (slug + followers), not who's *best* — it has no return/accuracy field. To overlay the *top* analysts by quality, rank them with `traderbro analyst list --sort return` first, then pass those slugs to `analysts select`.
+- JSON shape: both `analysts list --json` and `patterns list --json` carry the catalogue under **`available`** (+ `selected`, `direction`). `patterns list` also includes `availableTypes` (alias) + `aggregates` (per-type counts) + `horizon`.
+- In headless, the React panel's fetch is slower (>5s): run `list` first to prime the datafeed, *then* `select`, or the overlay renders empty.
+- `brochart state --json` carries the active overlay under `.sidebar` (selected analysts, pattern types, direction, horizon, active tab).
+
+### Headless / agent-driven (no human browser tab) — `brochart launch`
+
+The WS bridge (`brochart serve`) needs a human's chart tab open. For sandbox/agent use, `brochart launch` drives an app-owned Chrome over CDP — the headless counterpart. Every brochart command then works over `--via cdp` (data, sidebar, draw, screenshot), addressing CDP port 9334 (coexists with tvsandbox's 9333).
+
+```bash
+# Sandbox (headless): JWT comes from $TRADERBRO_USER_JWT (injected by the broker)
+traderbro brochart launch --via cdp --headless
+traderbro brochart --via cdp symbol NASDAQ:NVDA 1D
+traderbro brochart --via cdp analysts select alea --add
+traderbro brochart --via cdp close
+traderbro brochart --via cdp screenshot -o ~/shared/nvda.png    # watermark-free clip
+```
+
+- Auth: injects a session JWT into `localStorage.token`. Defaults to `$TRADERBRO_USER_JWT`; `--jwt <token>` overrides (local dev). A missing/invalid JWT bounces to `/login` and `launch` fails loudly — re-check the env var.
+- **Local dev:** add `--cdp-url http://localhost:<port>/chart` (the vite port, e.g. 3000 or 3002) and `--jwt` — and pass the **same `--cdp-url` to EVERY `--via cdp` command**, not just `launch`. The tab matcher locates the chart by that URL's host; if a later command omits it, it defaults to the prod host and attaches to the wrong tab (`window.__brochart not present`). In production the default URL is correct, so you pass nothing.
+- Once launched, the Chrome is reused (lazy single attach). Readiness is confirmed by `launch`'s `ready` line and `state --json` — **`serve`/`charts`/`health` are WS-bridge-only and don't work over `--via cdp`**; don't reach for them on a headless chart.
+- The `screenshot -o` capture is clipped to the chart pane: it shows the price chart **with the overlay marks** (analyst calls, pattern markers), but **not** the sidebar panel UI itself. To list/inspect the panel contents use `analysts list` / `patterns list` / `state --json`.
 
 ### Bulk scanning (>20 symbols in one session)
 
