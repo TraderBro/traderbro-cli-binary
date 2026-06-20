@@ -333,169 +333,28 @@ traderbro screener run --filter exchange:eq:NASDAQ --sort dollar_volume:desc \
 # universe.txt: 100 lines, no footer — footer goes to stderr
 ```
 
-## Two charts — which to use
+## Charts — which tool, and where the detail lives
 
 | Need | Command | Why |
 |---|---|---|
 | Proprietary overlays (analyst marks, calculated events, predictions) | **`brochart`** | only the traderbro.ai-hosted chart carries TraderBro's custom data |
-| High-fidelity price/volume: intraday, extended-hours, long history, bulk scanning, native drawing | **`tvsandbox`** | drives the official tradingview.com/chart over CDP on a dedicated Chrome |
-| Chart-**pattern detection** (H&S, etc.) | **`calculated-events`** | server-side detector; there is no geometry detector in the CLI |
+| High-fidelity price/volume: intraday, extended-hours, long history, bulk scanning, native drawing | **`tvsandbox`** | drives the official tradingview.com/chart over CDP |
+| Chart-**pattern detection** (H&S, etc.) | **`calculated-events`** | server-side detector; no geometry detector in the CLI |
 
-## Chart Control — official tradingview.com (traderbro tvsandbox)
+Chart work is heavy reference — don't carry it in resident context. Load the ONE workflow
+you need on demand with `traderbro skills show <name>`:
 
-Drives `tradingview.com/chart` over CDP on a dedicated, app-owned Chrome (port 9333,
-profile `~/.traderbro/chrome-profile`). **Run `traderbro skills show tvsandbox-setup`
-first** — the login gate (`whoami`/`login`), port isolation, and the single-Chrome
-**sequential-only** rule are mandatory operating knowledge.
+- **tvsandbox** (official TV chart): `tvsandbox-setup` (READ FIRST — login/ports/sequential-only rule),
+  `tvsandbox-reading` (judge one symbol), `tvsandbox-drawing` (annotate), `tvsandbox-scanning` (rank many).
+- **brochart** (TraderBro-hosted chart — the ONLY way to render analyst/pattern overlays):
+  `tv-analysis` (single-chart SOP), `tv-drawings`, `tv-patterns`, `tv-quant` (exact numbers),
+  `tv-bulk-scanning` + `tv-long-running` (>20 symbols / >10 min).
+- Pattern detection + effectiveness: `signals-analysis`, `pattern-effectiveness`, `calculated-events-tv`.
 
-- **Find the right symbol:** `tvsandbox search <ticker-or-name>` returns the exact symbols the guest feed serves. The guest exchange ≠ a stock's primary listing (e.g. **SPY is `AMEX:SPY`, not `NYSEARCA:SPY`**) — search instead of guessing; `bars`/`snap` also print candidates when a symbol won't load.
-- **Read/judge a symbol:** `tvsandbox bars` + `tvsandbox snap` → Read the PNG → call it (skill `tvsandbox-reading`). No detector — judgement is the agent's.
-- **Read many charts:** get a candidate list from `screener`/`calculated-events`, then rank it with `tvsandbox metrics` and/or bulk-capture with `tvsandbox sweep` (skill `tvsandbox-scanning`). tvsandbox does not screen the market itself.
-- **Annotate:** `tvsandbox draw <shape> --points …` renders any of ~90 native TV objects; `tvsandbox clear` removes them (skill `tvsandbox-drawing`).
-
-## Chart Control (traderbro brochart)
-
-Requires either: (a) `traderbro brochart serve` running + a TraderBro chart page open in the user's browser (interactive), or (b) `traderbro brochart launch --via cdp [--headless]` for sandbox/agent use with no human tab (see "Headless / agent-driven" below). brochart is the **only** way to render TraderBro's proprietary overlays (analyst calls, calculated-event patterns) — tvsandbox cannot.
-
-**Standard single-chart workflow:**
-1. `traderbro brochart symbol NASDAQ:NVDA 1D`          — set chart
-2. `traderbro brochart range 2025-01-01`               — set visible range
-3. `traderbro brochart close && traderbro brochart screenshot -o /tmp/chart.png`  — see what's on the chart
-4. `traderbro brochart bars --last 90 --json`          — get exact timestamps for drawing
-5. `traderbro brochart draw *`                         — annotate
-6. `traderbro brochart close && traderbro brochart screenshot -o /tmp/annotated.png`  — verify
-7. `traderbro brochart save "name"`                    — persist
-
-### Command surface (read commands)
-
-| Command | Purpose | Readback |
-|---|---|---|
-| `brochart health` | 5-check diagnostic (bridge, chart, widget, UDF, memory) | exit 0/1 |
-| `brochart charts` / `brochart use <id>` / `brochart connect <uuid>` | List, select, or attach to a chart tab | JSON |
-| `brochart state [--json] [--full]` | Symbol, resolution, bar_spacing, studies, shapes, theme | JSON (long-key shape) |
-| `brochart bars --last N [--json]` | Authoritative OHLCV: `{date, timestamp, open, high, low, close, volume}` | always |
-| `brochart study list [--json] [--plain]` | All active studies (id, name, parent_id) | human table default |
-| `brochart study values --last N [--include-volume] [--ids X,Y]` | Bars + every active study's computed series, time-aligned | always |
-| `brochart draw list [--json] [--plain]` | All shapes (id, name=type, parent_id for labels) | human table default |
-| `brochart saved [--json]` | Saved chart layouts | human table default |
-| `brochart search <q> [--exchange] [--type] [--limit]` | UDF symbol search; falls back to `/cli/v1/symbols/search/` when no chart connected | always |
-| `brochart screenshot [-o file]` | PNG. Base64 to stdout if no `-o`. Over `--via cdp`/`--headless` with `-o`, captures watermark-free (no account stamp). | binary |
-| `brochart analysts list [--json]` | Analysts available + currently selected for the chart's symbol (proprietary overlay) | human table default |
-| `brochart patterns list [--json] [--direction]` | Calculated-event pattern types available + selected for the symbol | human table default |
-
-### Command surface (write commands — all return `{ok, command, ...fields}` under `--json`)
-
-| Command | Effect | Notes |
-|---|---|---|
-| `brochart symbol <ticker> [res]` | Set symbol + optional resolution | Always exchange-qualify (`NASDAQ:AAPL`) to avoid bare-ticker warnings + cross-exchange resolution surprises. Emits stderr warning when symbol has no UDF data (chart loads empty); exit 0 — next `brochart symbol` recovers. |
-| `brochart timeframe <val> [res]` | Set visible window: `1D 5D 1M 3M 6M YTD 1Y 3Y 5Y ALL`; optional res `1D/1W/1M` | Computes (from, to) Unix timestamps in Go and calls `setVisibleRange` — TV's documented `setTimeFrame` shape doesn't work in this Charting Library variant. |
-| `brochart zoom <in\|out\|reset\|N>` | Bar spacing. Use `-- -5` to pass a negative value (cobra). | Verified via `brochart state \| jq .bar_spacing` |
-| `brochart range <start> [end]` | Explicit YYYY-MM-DD window | No readback — visual diff only |
-| `brochart close` | Dismiss popups/panels | Run before screenshot |
-| `brochart study add <name> [--force]` | Add indicator. Use full names ("Relative Strength Index", not "RSI"). | Dedup by name unless `--force`. |
-| `brochart study remove <id>` / `brochart study clear` | Remove one or all studies | |
-| `brochart draw line/hline/rect/arrow/text/long/short` | Draw shapes. `--label` adds a linked text shape (parent_id). | `--json` returns `shape_id` for the new shape |
-| `brochart draw modify <id> [--color] [--width] [--style] [--label]` | Edit existing shape's visual properties | Phase 1: color/width/style/label. Phase 2 (geometry) deferred. |
-| `brochart draw remove <id>[,<id>] / --type X / --all` | Surgical shape removal with label cascade | `--all` is alias for `brochart draw clear` |
-| `brochart draw clear` | Wipe all shapes | |
-| `brochart save [name]` / `brochart refresh [--hard]` | Save layout / soft re-bind (default) / hard reload page | `--hard` does origin pre-probe and refuses if front-end down |
-| `brochart analysts select [slug...]` | Overlay these analysts' calls. Default REPLACES; `--add`/`--remove`/`--clear`; `--direction all\|bullish\|bearish`. Slugs from `analysts list`. | Proprietary overlay — has no tvsandbox equivalent |
-| `brochart patterns select [type...]` | Overlay these pattern types as markers. Default REPLACES; `--add`/`--remove`/`--clear`; `--direction`; `--horizon 1d\|3d\|7d\|1m\|3m\|6m\|1y` (forward-return window). Types from `patterns list`. | Proprietary overlay |
-| `brochart tab <symbols\|analysts\|patterns\|copilot\|hermes>` | Switch the active sidebar tab (opens the panel) | |
-| `brochart eval "<js>"` | Escape hatch for un-wrapped TV API calls | Use sparingly |
-
-### Key facts
-
-- **Always run `brochart close` before a screenshot** to dismiss indicator panels.
-- **Always run `brochart bars` before drawing** for authoritative timestamps — computed dates can land one bar off around weekends/DST.
-- **Always exchange-qualify symbols** in scripts (`NASDAQ:AAPL`, not `AAPL`) — bare tickers print a stderr warning and may resolve to a wrong exchange after a saveload restore.
-- **`brochart state --json`** has long keys: `.symbol` is a string (the ticker), `.symbol_info` carries the metadata, `.bar_spacing` reflects current zoom level.
-- **`brochart bars --json`** keys: `open, high, low, close, volume, timestamp, date` (long form, same as `brochart study values`).
-- **`brochart eval`** is an escape hatch only — if you use it twice for the same thing, it belongs in `chart-bridge.js`.
-- **Soft refresh** (`brochart refresh`) is ~200 ms and non-destructive — fine for K=25-50 cadence in long loops. **Hard refresh** (`brochart refresh --hard`) is destructive and pre-probes the chart origin (refuses if unreachable); reserve for `brochart health` failures.
-- **No-bars charts** show "No data here" — chart accepts next symbol normally, not a freeze. In production (traderbro.ai) the UDF covers every active US symbol so this usually means a wrong-exchange ticker (e.g. `BCBA:AAPL`); in local dev backends, even mega-caps may not be ingested yet. `brochart symbol` and `brochart draw` both emit stderr warnings + exit 0 on bars=0; suppress with `--quiet`.
-
-### Proprietary overlays — Analysts & Patterns (brochart only)
-
-These are TraderBro's own data, rendered on the self-hosted chart — **tvsandbox cannot show them** (it only sees tradingview.com). Use brochart when the user asks to *see analyst calls or detected chart patterns on the chart*.
-
-```bash
-# Analyst calls overlay
-traderbro brochart symbol NASDAQ:NVDA 1D
-traderbro brochart analysts list --json                 # who covers NVDA + who's selected
-traderbro brochart analysts select alea merridew         # overlay two analysts' marks (REPLACE)
-traderbro brochart analysts select crux --add            # add a third
-traderbro brochart analysts select --direction bullish   # show only bullish marks
-traderbro brochart tab analysts                          # open the Analysts panel
-traderbro brochart close && traderbro brochart screenshot -o /tmp/nvda-analysts.png
-
-# Calculated-event pattern overlay
-traderbro brochart patterns list --json                  # pattern types detected on NVDA
-traderbro brochart patterns select bull_flag cup_and_handle --horizon 3m
-traderbro brochart close && traderbro brochart screenshot -o /tmp/nvda-patterns.png
-```
-
-- `select` with no args + `--clear` removes the overlay. `--add`/`--remove` adjust incrementally.
-- `analysts list` shows **who covers the symbol** (slug + followers), not who's *best* — it has no return/accuracy field. To overlay the *top* analysts by quality, rank them with `traderbro analyst list --sort return` first, then pass those slugs to `analysts select`.
-- JSON shape: both `analysts list --json` and `patterns list --json` carry the catalogue under **`available`** (+ `selected`, `direction`). `patterns list` also includes `availableTypes` (alias) + `aggregates` (per-type counts) + `horizon`.
-- In headless, the React panel's fetch is slower (>5s): run `list` first to prime the datafeed, *then* `select`, or the overlay renders empty.
-- `brochart state --json` carries the active overlay under `.sidebar` (selected analysts, pattern types, direction, horizon, active tab).
-
-### Headless / agent-driven (no human browser tab) — `brochart launch`
-
-The WS bridge (`brochart serve`) needs a human's chart tab open. For sandbox/agent use, `brochart launch` drives an app-owned Chrome over CDP — the headless counterpart. Every brochart command then works over `--via cdp` (data, sidebar, draw, screenshot), addressing CDP port 9334 (coexists with tvsandbox's 9333).
-
-```bash
-# Sandbox (headless): JWT comes from $TRADERBRO_USER_JWT (injected by the broker)
-traderbro brochart launch --via cdp --headless
-traderbro brochart --via cdp symbol NASDAQ:NVDA 1D
-traderbro brochart --via cdp analysts select alea --add
-traderbro brochart --via cdp close
-traderbro brochart --via cdp screenshot -o ~/shared/nvda.png    # watermark-free clip
-```
-
-- Auth: injects a session JWT into `localStorage.token`. Defaults to `$TRADERBRO_USER_JWT`; `--jwt <token>` overrides (local dev). A missing/invalid JWT bounces to `/login` and `launch` fails loudly — re-check the env var.
-- **Local dev:** add `--cdp-url http://localhost:<port>/chart` (the vite port, e.g. 3000 or 3002) and `--jwt` — and pass the **same `--cdp-url` to EVERY `--via cdp` command**, not just `launch`. The tab matcher locates the chart by that URL's host; if a later command omits it, it defaults to the prod host and attaches to the wrong tab (`window.__brochart not present`). In production the default URL is correct, so you pass nothing.
-- Once launched, the Chrome is reused (lazy single attach). Readiness is confirmed by `launch`'s `ready` line and `state --json` — **`serve`/`charts`/`health` are WS-bridge-only and don't work over `--via cdp`**; don't reach for them on a headless chart.
-- The `screenshot -o` capture is clipped to the chart pane: it shows the price chart **with the overlay marks** (analyst calls, pattern markers), but **not** the sidebar panel UI itself. To list/inspect the panel contents use `analysts list` / `patterns list` / `state --json`.
-
-### Bulk scanning (>20 symbols in one session)
-
-Read `traderbro skills show tv-bulk-scanning` for the on-disk corpus pattern. The TL;DR:
-
-```bash
-RUN_DIR=/tmp/scan-$(date +%s); mkdir -p "$RUN_DIR"/{ss,bars,values}
-traderbro screener run --filter exchange:eq:NASDAQ --sort dollar_volume:desc \
-  --limit 100 --symbols-only > "$RUN_DIR/universe.txt"
-
-K=0
-while read sym; do
-  traderbro brochart symbol "$sym" 1D --quiet >/dev/null
-  sleep 1  # let bars load
-  traderbro brochart bars --last 90 --json > "$RUN_DIR/bars/${sym//:/_}.json"
-  K=$((K+1)); (( K % 25 == 0 )) && {
-    traderbro brochart health --quick >/dev/null || traderbro brochart refresh
-  }
-done < "$RUN_DIR/universe.txt"
-
-# Now analyse OFFLINE via jq across the corpus
-for f in "$RUN_DIR"/bars/*.json; do
-  jq -r --arg sym "$(basename "$f" .json)" \
-    '[.bars[].close] as $c | "\($sym)\t\(($c|last - ($c|first)) / ($c|first) * 100)"' "$f"
-done | sort -k2 -rn | head
-```
-
-### Visual regression for blind-write commands
-
-`brochart timeframe`, `brochart range`, `brochart close`, `brochart screenshot` have no state readback. Use the helpers at `experiments/tv_visual_helpers.sh`:
-
-```bash
-source experiments/tv_visual_helpers.sh
-verify_visual_change traderbro brochart timeframe 6M
-verify_n_distinct_screenshots /tmp/sweep "traderbro brochart timeframe" 1D 6M 1Y ALL
-```
-
-These exist for testing only — don't run them inside production agent loops (each screenshot is ~100 KB / ~500 ms).
+Cross-cutting: always exchange-qualify symbols (`NASDAQ:AAPL`); on tvsandbox the guest exchange
+≠ a stock's primary listing (SPY is `AMEX:SPY`, not `NYSEARCA:SPY`) — use `tvsandbox search` to
+resolve; tvsandbox is sequential-only on one app-owned Chrome. The skills above carry the full
+command surface + gotchas.
 
 ## Available skills
 
@@ -508,6 +367,7 @@ These exist for testing only — don't run them inside production agent loops (e
 | `chart-reading` | interpret a chart PNG (from `tvsandbox snap` or `brochart screenshot`) |
 | `pattern-confluence` | Buy/Sell/Hold verdict combining analysts + signals + chart |
 | `pattern-effectiveness` | "does this pattern actually work on this symbol" |
+| `screener` | rank/filter the universe — "most active / top movers / biggest / trending / gainers", RSI/market-cap/sector screens (any market) |
 | `sharing` | producing shareable URLs + preview images for social/messaging |
 | `signals-analysis` | run `calculated-events` detectors, optionally annotate |
 | `symbol-stock-picker` | candidate discovery from trending coverage |
